@@ -1,0 +1,664 @@
+# MIT License
+# 
+# Copyright (c) 2020 Konrad Banachowicz
+# Copyright (c) 2026 Jordi Albareda Fortuny
+# Copyright (c) 2026 Leonard Pitzu
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+blueprint:
+  name: SALUS – vejrstyret gulvkomfort for flere uafhængige rum
+  domain: automation
+  description: Én fælles automation med separate standardhjælpere pr. rum. Vejrudsigten starter komforten; efter
+    minimumperioden vurderes udetemperaturen nu. Rumminimum kan fastholde et aktivt rum, øvre rumgrænse kan afbryde
+    straks. Kræver to Timer-hjælpere med Gendan og en Tekst-hjælper med max 255 pr. rum. Ingen specialservice, Python-controller
+    eller brugerdefineret lager. Se vejledningen før flytning.
+  homeassistant:
+    min_version: 2026.2.0
+  source_url: https://github.com/MichaelBusackBertelsen/salus-comfort-blueprint/blob/main/blueprints/automation/salus_floor_comfort_da.yaml
+  input:
+    weather_section:
+      name: 1. Vejrudsigt og udeføler
+      input:
+        source:
+          name: Vejrudsigt
+          description: Vælg vejrtjenesten med timeprognoser. Den bruges altid til tænding og leverer også temperaturen
+            nu, hvis der ikke er en gyldig udeføler.
+          selector:
+            entity:
+              domain: weather
+        outdoor_sensor:
+          name: Udetemperaturføler (valgfri)
+          description: Valgfri fysisk udeføler til stopvurdering. Uden en gyldig måling bruges vejrtjenestens aktuelle
+            temperatur — aldrig en fremtidig prognosetime.
+          selector:
+            entity:
+              domain: sensor
+          default: ''
+    rooms_section:
+      name: 2. Rum og individuelle hjælpere
+      input:
+        rooms:
+          name: Rum og hjælpere
+          description: Tilføj hvert rum én gang. Opret to Timer-hjælpere med Gendan slået til og én Tekst-hjælper
+            med maksimal længde 255 pr. rum. Kobl de rigtige entiteter i hvert rum. Del aldrig timer/status mellem
+            rum eller automationsregler.
+          selector:
+            object:
+              multiple: true
+              label_field: name
+              fields:
+                name:
+                  label: Rummets navn
+                  required: true
+                  selector:
+                    text: {}
+                comfort:
+                  label: Gulvkomfort-select
+                  required: true
+                  selector:
+                    entity:
+                      domain: select
+                climate:
+                  label: Rummets termostat
+                  required: true
+                  selector:
+                    entity:
+                      domain: climate
+                period_timer:
+                  label: Periodetimer – Gendan slået til
+                  required: true
+                  selector:
+                    entity:
+                      domain: timer
+                cooldown_timer:
+                  label: Pausetimer – Gendan slået til
+                  required: true
+                  selector:
+                    entity:
+                      domain: timer
+                memory:
+                  label: Rummets Tekst-hjælper – max 255
+                  required: true
+                  selector:
+                    entity:
+                      domain: input_text
+        level:
+          name: Komfortniveau ved start
+          description: Niveau ved automatisk tænding af et slukket rum. Ved overtagelse af allerede aktiv komfort
+            bevares det manuelt valgte niveau.
+          selector:
+            select:
+              options:
+              - level_1
+              - level_2
+              - level_3
+          default: level_1
+    start_section:
+      name: 3. Tænding og perioder
+      input:
+        forecast_hours:
+          name: Se dette antal timer frem
+          description: Hvor langt frem skal vejrudsigten undersøges? Fx 8 timer. Prognosen bruges kun til start
+            og ændrer ikke en aktiv kørsel.
+          selector:
+            number:
+              min: 1
+              max: 48
+              step: 1
+              unit_of_measurement: h
+              mode: box
+          default: 8
+        start_below:
+          name: Tænd under
+          description: Tænd, hvis mindst én time i prognosen er under denne grænse, og rummets pause er udløbet.
+            Fx 4,9 °C kan starte ved grænse 5 °C.
+          selector:
+            number:
+              min: -50
+              max: 40
+              step: 0.5
+              unit_of_measurement: °C
+              mode: box
+          default: 5
+        min_runtime_hours:
+          name: Minimumløbetid
+          description: Første beskyttede periode, fx 4 timer. Starter ved bekræftet tænding eller ved overtagelse.
+            Nye tjek og genstart nulstiller ikke tiden.
+          selector:
+            number:
+              min: 0.25
+              max: 168
+              step: 0.25
+              unit_of_measurement: h
+              mode: box
+          default: 4
+        extension_hours:
+          name: Forlængelse pr. vurdering
+          description: Er der stadig behov ved periodens slutning, forlænges fx 1 time. Der foretages først en ny
+            stopvurdering ved den nye periodes slutning.
+          selector:
+            number:
+              min: 0.25
+              max: 24
+              step: 0.25
+              unit_of_measurement: h
+              mode: box
+          default: 1
+    stop_section:
+      name: 4. Slukning
+      input:
+        stop_at:
+          name: Sluk ved eller over
+          description: 'Ved periodens slutning: Sluk, hvis temperaturen udenfor nu er ved eller over grænsen, og
+            rummet ikke fastholdes. Skal være højere end tændgrænsen.'
+          selector:
+            number:
+              min: -40
+              max: 60
+              step: 0.5
+              unit_of_measurement: °C
+              mode: box
+          default: 7
+    indoor_section:
+      name: 5. Rumminimum og øvre grænse
+      collapsed: true
+      input:
+        use_room_minimum:
+          name: Hold aktiv ved lav rumtemperatur
+          description: Et koldt rum kan kun fastholde sin egen aktive komfort. Vælg rummets termostat i rumlisten.
+            Rumminimum tænder aldrig komfort alene.
+          selector:
+            boolean: {}
+          default: false
+        room_minimum:
+          name: Minimum rumtemperatur
+          description: 'Fx 21 °C: Kommer et aktivt rum under grænsen, kan det holde komforten aktiv. Hvert rum vurderes
+            separat, selv om grænsen er fælles.'
+          selector:
+            number:
+              min: 5
+              max: 35
+              step: 0.5
+              unit_of_measurement: °C
+              mode: box
+          default: 21
+        room_margin:
+          name: Buffer før rumfastholdelse frigives
+          description: 'Fx minimum 21 °C og buffer 0,5 °C: Har rummet udløst fastholdelse, frigives den ved 21,5
+            °C. Stop kan først ske ved næste periodegrænse.'
+          selector:
+            number:
+              min: 0.1
+              max: 5
+              step: 0.1
+              unit_of_measurement: °C
+              mode: box
+          default: 0.5
+        use_room_maximum:
+          name: Sluk straks ved høj rumtemperatur
+          description: Slå til for at afbryde automatisk styret Gulvkomfort ved den øvre rumgrænse, også midt i
+            minimumperioden. Kun dette rum slukkes; den normale pause starter bagefter. Ny tænding blokeres, hvis
+            rummet er for varmt eller ikke kan måles.
+          selector:
+            boolean: {}
+          default: false
+        room_maximum:
+          name: Øvre rumtemperatur – sluk straks ved
+          description: 'Fx 25 °C: Ved eller over grænsen sendes Fra ved næste gyldige måling fra rummets egen termostat.
+            Har du også rumminimum, skal grænsen være over minimum plus buffer.'
+          selector:
+            number:
+              min: 5
+              max: 40
+              step: 0.5
+              unit_of_measurement: °C
+              mode: box
+          default: 25
+        room_temperature_unit:
+          name: Home Assistants temperaturenhed
+          description: Vælg samme temperaturenhed som Home Assistant bruger på termostaterne. Alle grænser i formularen
+            angives stadig i °C.
+          selector:
+            select:
+              options:
+              - °C
+              - °F
+          default: °C
+    manual_section:
+      name: 6. Manuel styring og pause
+      collapsed: true
+      input:
+        adopt_manual:
+          name: Overtag manuelt aktiveret Gulvkomfort
+          description: Når startbetingelsen er opfyldt og pausen udløbet, kan manuelt aktiv komfort overtages. Niveauet
+            bevares; minimumperioden starter ved overtagelsen.
+          selector:
+            boolean: {}
+          default: false
+        cooldown_hours:
+          name: Mindste pause før ny start
+          description: Mindste pause efter bekræftet slukning eller manuel ændring. Gælder både ny tænding og overtagelse.
+            Pausen gemmes separat for hvert rum.
+          selector:
+            number:
+              min: 0
+              max: 168
+              step: 0.25
+              unit_of_measurement: h
+              mode: box
+          default: 6
+variables:
+  source: !input 'source'
+  outdoor_sensor: !input 'outdoor_sensor'
+  rooms: !input 'rooms'
+  level: !input 'level'
+  forecast_hours: !input 'forecast_hours'
+  start_below: !input 'start_below'
+  min_runtime_hours: !input 'min_runtime_hours'
+  extension_hours: !input 'extension_hours'
+  stop_at: !input 'stop_at'
+  use_room_minimum: !input 'use_room_minimum'
+  room_minimum: !input 'room_minimum'
+  room_margin: !input 'room_margin'
+  use_room_maximum: !input 'use_room_maximum'
+  room_maximum: !input 'room_maximum'
+  room_temperature_unit: !input 'room_temperature_unit'
+  adopt_manual: !input 'adopt_manual'
+  cooldown_hours: !input 'cooldown_hours'
+trigger:
+- platform: time_pattern
+  minutes: /15
+- platform: homeassistant
+  event: start
+- platform: event
+  event_type: timer.finished
+- platform: template
+  value_template: "{% set ns=namespace(changed=false) %}\n{% for room in rooms %}\n {% set m=states(room.memory)|from_json({})\
+    \ %}{% set p=m.get('p','idle') if m is mapping else 'idle' %}\n {% set actual=states(room.comfort) %}{% set\
+    \ known=actual in ['off','level_1','level_2','level_3'] and not state_attr(room.comfort,'assumed_state') %}\n\
+    \ {% set raw=state_attr(room.climate,'current_temperature') %}\n {% set temp=((raw|float-32)*5/9 if room_temperature_unit=='°F'\
+    \ else raw|float) if is_number(raw) and raw is not boolean else none %}\n {% if p in ['starting','stopping']\
+    \ and ((known and (actual==m.get('l') if p=='starting' else actual=='off')) or is_state(room.period_timer,'idle'))\
+    \ %}{% set ns.changed=true %}{% endif %}\n {% if p=='active' and known %}\n  {% if actual!=m.get('l') or is_state(room.period_timer,'idle')\
+    \ %}{% set ns.changed=true %}{% endif %}\n  {% if use_room_maximum and temp is not none and temp>=room_maximum\
+    \ and m.get('r')!='timeout' %}{% set ns.changed=true %}{% endif %}\n  {% if use_room_minimum and temp is not\
+    \ none and ((not m.get('h',false) and temp<room_minimum) or (m.get('h',false) and temp>=room_minimum+room_margin))\
+    \ %}{% set ns.changed=true %}{% endif %}\n {% endif %}\n {% if p=='cooldown' and is_state(room.cooldown_timer,'idle')\
+    \ %}{% set ns.changed=true %}{% endif %}\n{% endfor %}{{ ns.changed }}"
+condition:
+- condition: template
+  value_template: '{{ trigger is not defined or trigger.platform!=''event'' or trigger.event.data.entity_id in (rooms|map(attribute=''period_timer'')|list
+    + rooms|map(attribute=''cooldown_timer'')|list) }}'
+action:
+- variables:
+    configuration_valid: "{% set ns=namespace(ok=rooms is sequence and rooms is not string and rooms|count>0, ids=[])\
+      \ %}\n{% for room in rooms if rooms is sequence and rooms is not string %}\n {% for key,domain in [('comfort','select.'),('climate','climate.'),('period_timer','timer.'),('cooldown_timer','timer.'),('memory','input_text.')]\
+      \ %}\n  {% set value=room.get(key,'') if room is mapping else '' %}\n  {% if value is not string or not value.startswith(domain)\
+      \ %}{% set ns.ok=false %}{% endif %}\n  {% if key in ['period_timer','cooldown_timer','memory'] and states(value)\
+      \ in ['unknown','unavailable'] %}{% set ns.ok=false %}{% endif %}\n  {% if key != 'climate' %}{% if value\
+      \ in ns.ids %}{% set ns.ok=false %}{% endif %}{% set ns.ids=ns.ids+[value] %}{% endif %}\n {% endfor %}\n\
+      \ {% if room is mapping %}\n  {% set raw=states(room.get('memory','input_text.none')) %}{% set m=raw|from_json({})\
+      \ %}\n  {% if raw|trim and (m is not mapping or m.get('v')!=1) %}{% set ns.ok=false %}{% endif %}\n  {% if\
+      \ (state_attr(room.memory,'max')|int(0))<255 %}{% set ns.ok=false %}{% endif %}\n  {% if ['off','level_1','level_2','level_3']|reject('in',state_attr(room.comfort,'options')\
+      \ or [])|list|count %}{% set ns.ok=false %}{% endif %}\n {% endif %}\n{% endfor %}\n{{ ns.ok and stop_at>start_below\
+      \ and (not use_room_minimum or not use_room_maximum or room_maximum>room_minimum+room_margin) }}"
+- choose:
+  - conditions: '{{ not configuration_valid }}'
+    sequence:
+    - stop: Check room helper IDs, uniqueness, Text max=255, available entities and ordered thresholds.
+      error: true
+- variables:
+    now_ts: '{{ as_timestamp(now())|int }}'
+    outside_c: "{% set ns=namespace(value=none) %}\n{% for id in [outdoor_sensor,source] if id %}\n {% if ns.value\
+      \ is none and states(id) not in ['unknown','unavailable'] %}\n  {% set weather=id.startswith('weather.') %}{%\
+      \ set raw=state_attr(id,'temperature') if weather else states(id) %}\n  {% set unit=state_attr(id,'temperature_unit'\
+      \ if weather else 'unit_of_measurement') %}\n  {% if is_number(raw) and raw is not boolean and unit in ['°C','°F']\
+      \ %}{% set ns.value=((raw|float-32)*5/9 if unit=='°F' else raw|float)|round(3) %}{% endif %}\n {% endif %}\n\
+      {% endfor %}{{ ns.value }}"
+    forecast_response: {}
+- choose:
+  - conditions: "{% set ns=namespace(needed=false) %}{% for room in rooms %}\n{% set m=states(room.memory)|from_json({})\
+      \ %}{% set p=m.get('p','idle') %}\n{% if p=='idle' or (p=='cooldown' and is_state(room.cooldown_timer,'idle'))\
+      \ %}\n {% if not state_attr(room.comfort,'assumed_state') and (is_state(room.comfort,'off') or adopt_manual)\
+      \ %}{% set ns.needed=true %}{% endif %}\n{% endif %}{% endfor %}{{ ns.needed and states(source) not in ['unknown','unavailable']\
+      \ }}"
+    sequence:
+    - action: weather.get_forecasts
+      data:
+        entity_id: '{{ source }}'
+        type: hourly
+      response_variable: forecast_response
+      continue_on_error: true
+- variables:
+    forecast: "{% set response=forecast_response|default({},true) %}\n{% set data=response.get(source,{}) if response\
+      \ is mapping else {} %}\n{% set rawrows=data.get('forecast',[]) if data is mapping else [] %}\n{% set rows=rawrows\
+      \ if rawrows is sequence and rawrows is not string else [] %}\n{% set ns=namespace(points=[],valid=true) %}{%\
+      \ set unit=state_attr(source,'temperature_unit') %}\n{% for row in rows if row is mapping %}\n {% set date=as_datetime(row.get('datetime'),none)\
+      \ %}\n {% if date is not none and date.tzinfo is not none %}\n  {% set stamp=as_timestamp(date) %}\n  {% if\
+      \ now_ts<=stamp<=now_ts+forecast_hours*3600 %}\n   {% set raw=row.get('temperature') %}\n   {% if is_number(raw)\
+      \ and raw is not boolean and unit in ['°C','°F'] %}\n    {% set temp=((raw|float-32)*5/9 if unit=='°F' else\
+      \ raw|float)|round(3) %}\n    {% set ns.points=ns.points+[dict(at=stamp|int,temp=temp)] %}\n   {% else %}{%\
+      \ set ns.valid=false %}{% endif %}\n  {% endif %}\n {% else %}{% set ns.valid=false %}{% endif %}\n{% endfor\
+      \ %}\n{% set points=ns.points|sort(attribute='at') %}\n{% if points|count<forecast_hours or points|map(attribute='at')|unique|list|count!=points|count\
+      \ %}{% set ns.valid=false %}{% endif %}\n{% if points %}\n {% if points[0].at>now_ts+3600 or points[-1].at<now_ts+forecast_hours*3600-3600\
+      \ %}{% set ns.valid=false %}{% endif %}\n {% for point in points[1:] %}{% if point.at-points[loop.index0].at>3601\
+      \ %}{% set ns.valid=false %}{% endif %}{% endfor %}\n{% endif %}\n{{ (points|sort(attribute='temp')|first)\
+      \ if ns.valid and points else dict(at=0,temp=none) }}"
+- repeat:
+    for_each: '{{ rooms }}'
+    sequence:
+    - variables:
+        room: '{{ repeat.item }}'
+    - variables:
+        m: '{{ states(room.memory)|from_json({}) }}'
+        actual: '{{ states(room.comfort) }}'
+    - variables:
+        phase: '{{ m.get(''p'',''idle'') }}'
+        known: '{{ actual in [''off'',''level_1'',''level_2'',''level_3''] and not state_attr(room.comfort,''assumed_state'')
+          }}'
+        room_c: '{% set raw=state_attr(room.climate,''current_temperature'') %}{{ ((raw|float-32)*5/9 if room_temperature_unit==''°F''
+          else raw|float) if states(room.climate) not in [''unknown'',''unavailable''] and is_number(raw) and raw
+          is not boolean else none }}'
+        due: '{{ is_state(room.period_timer,''idle'') and now_ts>=m.get(''d'',0) }}'
+    - variables:
+        held: '{{ false if not use_room_minimum else true if room_c is not none and room_c<room_minimum else false
+          if room_c is not none and room_c>=room_minimum+room_margin else m.get(''h'',false) }}'
+    - choose:
+      - conditions: '{{ phase==''stopping'' }}'
+        sequence:
+        - choose:
+          - conditions: '{{ known and actual==''off'' }}'
+            sequence:
+            - action: timer.cancel
+              data:
+                entity_id: '{{ room.period_timer }}'
+            - action: input_text.set_value
+              data:
+                entity_id: '{{ room.memory }}'
+                value: '{{ dict(m,v=1,p=''cooldown'',d=now_ts+cooldown_hours*3600,r=m.get(''r'',''warm''),x=now_ts
+                  if actual==''off'' else m.get(''x'',0)) | to_json }}'
+            - action: timer.start
+              data:
+                entity_id: '{{ room.cooldown_timer }}'
+                duration: '{{ cooldown_hours*3600 }}'
+            - action: logbook.log
+              data:
+                name: '{{ room.name }}'
+                entity_id: '{{ room.comfort }}'
+                message: Switch-off device-confirmed. Earliest new start {{ (now_ts+cooldown_hours*3600)|timestamp_custom('%d-%m-%Y
+                  %H:%M:%S',true) }}.
+          default:
+          - choose:
+            - conditions: '{{ due }}'
+              sequence:
+              - action: input_text.set_value
+                data:
+                  entity_id: '{{ room.memory }}'
+                  value: '{{ dict(m,v=1,p=''active'',d=now_ts+300,r=''timeout'') | to_json }}'
+              - action: timer.start
+                data:
+                  entity_id: '{{ room.period_timer }}'
+                  duration: 300
+              - action: logbook.log
+                data:
+                  name: '{{ room.name }}'
+                  entity_id: '{{ room.comfort }}'
+                  message: Switch-off was not confirmed. No immediate replay; a fresh stop evaluation is scheduled
+                    in five minutes. Other rooms remain independent.
+      - conditions: '{{ phase==''starting'' }}'
+        sequence:
+        - choose:
+          - conditions: '{{ known and actual==m.get(''l'') }}'
+            sequence:
+            - action: input_text.set_value
+              data:
+                entity_id: '{{ room.memory }}'
+                value: '{{ dict(m,v=1,p=''active'',s=now_ts,d=now_ts+min_runtime_hours*3600,r=''minimum'') | to_json
+                  }}'
+            - action: timer.start
+              data:
+                entity_id: '{{ room.period_timer }}'
+                duration: '{{ min_runtime_hours*3600 }}'
+            - action: logbook.log
+              data:
+                name: '{{ room.name }}'
+                entity_id: '{{ room.comfort }}'
+                message: Device-confirmed comfort {{ actual }}. Protected minimum period starts now; next evaluation
+                  {{ (now_ts+min_runtime_hours*3600)|timestamp_custom('%d-%m-%Y %H:%M:%S',true) }}.
+          default:
+          - choose:
+            - conditions: '{{ known and actual not in [''off'',m.get(''l'')] }}'
+              sequence:
+              - action: timer.cancel
+                data:
+                  entity_id: '{{ room.period_timer }}'
+              - action: input_text.set_value
+                data:
+                  entity_id: '{{ room.memory }}'
+                  value: '{{ dict(m,v=1,p=''cooldown'',d=now_ts+cooldown_hours*3600,r=''manual'',x=now_ts if actual==''off''
+                    else m.get(''x'',0)) | to_json }}'
+              - action: timer.start
+                data:
+                  entity_id: '{{ room.cooldown_timer }}'
+                  duration: '{{ cooldown_hours*3600 }}'
+              - action: logbook.log
+                data:
+                  name: '{{ room.name }}'
+                  entity_id: '{{ room.comfort }}'
+                  message: A different device level was observed during start; it is preserved and cooldown begins.
+            default:
+            - choose:
+              - conditions: '{{ due }}'
+                sequence:
+                - action: timer.cancel
+                  data:
+                    entity_id: '{{ room.period_timer }}'
+                - action: input_text.set_value
+                  data:
+                    entity_id: '{{ room.memory }}'
+                    value: '{{ dict(m,v=1,p=''cooldown'',d=now_ts+cooldown_hours*3600,r=''timeout'',x=now_ts if
+                      actual==''off'' else m.get(''x'',0)) | to_json }}'
+                - action: timer.start
+                  data:
+                    entity_id: '{{ room.cooldown_timer }}'
+                    duration: '{{ cooldown_hours*3600 }}'
+                - action: logbook.log
+                  data:
+                    name: '{{ room.name }}'
+                    entity_id: '{{ room.comfort }}'
+                    message: Start was not device-confirmed before the timeout. No immediate retry; check the device.
+                      Cooldown begins.
+      - conditions: '{{ phase==''active'' }}'
+        sequence:
+        - choose:
+          - conditions: '{{ known and actual != m.get(''l'') }}'
+            sequence:
+            - action: timer.cancel
+              data:
+                entity_id: '{{ room.period_timer }}'
+            - action: input_text.set_value
+              data:
+                entity_id: '{{ room.memory }}'
+                value: '{{ dict(m,v=1,p=''cooldown'',d=now_ts+cooldown_hours*3600,r=''manual'',x=now_ts if actual==''off''
+                  else m.get(''x'',0)) | to_json }}'
+            - action: timer.start
+              data:
+                entity_id: '{{ room.cooldown_timer }}'
+                duration: '{{ cooldown_hours*3600 }}'
+            - action: logbook.log
+              data:
+                name: '{{ room.name }}'
+                entity_id: '{{ room.comfort }}'
+                message: External level change observed ({{ actual }}); ownership ended. Cooldown starts now.
+          default:
+          - choose:
+            - conditions: '{{ known and use_room_maximum and room_c is not none and room_c>=room_maximum and (m.get(''r'')!=''timeout''
+                or due) }}'
+              sequence:
+              - action: input_text.set_value
+                data:
+                  entity_id: '{{ room.memory }}'
+                  value: '{{ dict(m,v=1,p=''stopping'',d=now_ts+150,r=''room_maximum'') | to_json }}'
+              - action: timer.start
+                data:
+                  entity_id: '{{ room.period_timer }}'
+                  duration: 150
+              - action: logbook.log
+                data:
+                  name: '{{ room.name }}'
+                  entity_id: '{{ room.comfort }}'
+                  message: 'Stop requested ({{ ''upper room limit'' if ''room_maximum''==''room_maximum'' else ''period
+                    ended and warm outside'' }}). Outside now: {{ outside_c }} °C; stop threshold: {{ stop_at }}
+                    °C. Room: {{ room_c }} °C; upper limit: {{ room_maximum if use_room_maximum else ''disabled''
+                    }} °C. Awaiting device confirmation.'
+              - action: select.select_option
+                data:
+                  entity_id: '{{ room.comfort }}'
+                  option: 'off'
+                continue_on_error: true
+            default:
+            - choose:
+              - conditions: '{{ known and due }}'
+                sequence:
+                - choose:
+                  - conditions: '{{ outside_c is not none and outside_c>=stop_at and not held and not (use_room_minimum
+                      and room_c is none) }}'
+                    sequence:
+                    - action: input_text.set_value
+                      data:
+                        entity_id: '{{ room.memory }}'
+                        value: '{{ dict(m,v=1,p=''stopping'',d=now_ts+150,r=''warm'') | to_json }}'
+                    - action: timer.start
+                      data:
+                        entity_id: '{{ room.period_timer }}'
+                        duration: 150
+                    - action: logbook.log
+                      data:
+                        name: '{{ room.name }}'
+                        entity_id: '{{ room.comfort }}'
+                        message: 'Stop requested ({{ ''upper room limit'' if ''warm''==''room_maximum'' else ''period
+                          ended and warm outside'' }}). Outside now: {{ outside_c }} °C; stop threshold: {{ stop_at
+                          }} °C. Room: {{ room_c }} °C; upper limit: {{ room_maximum if use_room_maximum else ''disabled''
+                          }} °C. Awaiting device confirmation.'
+                    - action: select.select_option
+                      data:
+                        entity_id: '{{ room.comfort }}'
+                        option: 'off'
+                      continue_on_error: true
+                  default:
+                  - variables:
+                      reason: '{{ ''room_missing'' if use_room_minimum and room_c is none else ''room_hold'' if
+                        held else ''outdoor_missing'' if outside_c is none else ''outdoor_cold'' }}'
+                  - action: input_text.set_value
+                    data:
+                      entity_id: '{{ room.memory }}'
+                      value: '{{ dict(m,v=1,p=''active'',h=held,d=now_ts+extension_hours*3600,r=reason) | to_json
+                        }}'
+                  - action: timer.start
+                    data:
+                      entity_id: '{{ room.period_timer }}'
+                      duration: '{{ extension_hours*3600 }}'
+                  - action: logbook.log
+                    data:
+                      name: '{{ room.name }}'
+                      entity_id: '{{ room.comfort }}'
+                      message: 'Period extended for this room ({{ reason }}). Outside now: {{ outside_c }} °C; stop
+                        threshold: {{ stop_at }} °C. Room: {{ room_c }} °C. Next evaluation {{ (now_ts+extension_hours*3600)|timestamp_custom(''%d-%m-%Y
+                        %H:%M:%S'',true) }}.'
+              default:
+              - choose:
+                - conditions: '{{ held!=m.get(''h'',false) }}'
+                  sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: '{{ room.memory }}'
+                      value: '{{ dict(m,h=held) | to_json }}'
+              - choose:
+                - conditions: '{{ is_state(room.period_timer,''idle'') and now_ts<m.get(''d'',0) }}'
+                  sequence:
+                  - action: timer.start
+                    data:
+                      entity_id: '{{ room.period_timer }}'
+                      duration: '{{ [1,m.d-now_ts]|max }}'
+      default:
+      - choose:
+        - conditions: '{{ (phase!=''cooldown'' or is_state(room.cooldown_timer,''idle'')) and known and forecast.temp
+            is not none and forecast.temp<start_below }}'
+          sequence:
+          - choose:
+            - conditions: '{{ actual==''off'' and (not use_room_maximum or (room_c is not none and room_c<room_maximum))
+                }}'
+              sequence:
+              - action: input_text.set_value
+                data:
+                  entity_id: '{{ room.memory }}'
+                  value: '{{ dict(v=1,p=''starting'',l=level,s=0,d=now_ts+150,t=forecast.temp,a=forecast.at,f=now_ts,o=outside_c,b=start_below,m=false,h=false,r=''minimum'',q=now_ts,x=m.get(''x'',0))
+                    | to_json }}'
+              - action: timer.start
+                data:
+                  entity_id: '{{ room.period_timer }}'
+                  duration: 150
+              - action: logbook.log
+                data:
+                  name: '{{ room.name }}'
+                  entity_id: '{{ room.comfort }}'
+                  message: 'Start requested: forecast minimum {{ forecast.temp }} °C at {{ forecast.at|timestamp_custom(''%d-%m-%Y
+                    %H:%M:%S'',true) }}, below {{ start_below }} °C within {{ forecast_hours }} hours. Forecast
+                    fetched {{ now_ts|timestamp_custom(''%d-%m-%Y %H:%M:%S'',true) }}. Outside now: {{ outside_c
+                    }} °C. Requested {{ level }}; minimum period {{ min_runtime_hours }} hours starts on device
+                    confirmation.'
+              - action: select.select_option
+                data:
+                  entity_id: '{{ room.comfort }}'
+                  option: '{{ level }}'
+                continue_on_error: true
+            default:
+            - choose:
+              - conditions: '{{ actual in [''level_1'',''level_2'',''level_3''] and adopt_manual }}'
+                sequence:
+                - action: input_text.set_value
+                  data:
+                    entity_id: '{{ room.memory }}'
+                    value: '{{ dict(v=1,p=''active'',l=actual,s=now_ts,d=now_ts+min_runtime_hours*3600,t=forecast.temp,a=forecast.at,f=now_ts,o=outside_c,b=start_below,m=true,h=false,r=''adopted'',q=now_ts,x=m.get(''x'',0))
+                      | to_json }}'
+                - action: timer.start
+                  data:
+                    entity_id: '{{ room.period_timer }}'
+                    duration: '{{ min_runtime_hours*3600 }}'
+                - action: logbook.log
+                  data:
+                    name: '{{ room.name }}'
+                    entity_id: '{{ room.comfort }}'
+                    message: Already-active comfort adopted at {{ actual }} without a level write. Minimum period
+                      starts now. Forecast {{ forecast.temp }} °C at {{ forecast.at|timestamp_custom('%d-%m-%Y %H:%M:%S',true)
+                      }}; start threshold below {{ start_below }} °C; outside now {{ outside_c }} °C.
+        default:
+        - choose:
+          - conditions: '{{ phase==''cooldown'' and is_state(room.cooldown_timer,''idle'') }}'
+            sequence:
+            - action: input_text.set_value
+              data:
+                entity_id: '{{ room.memory }}'
+                value: '{{ dict(m,p=''idle'',r=''forecast_wait'') | to_json }}'
+mode: queued
+max: 20
+max_exceeded: silent
+trace:
+  stored_traces: 30

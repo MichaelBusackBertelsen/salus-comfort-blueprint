@@ -1,0 +1,36 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  blueprint:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.13"
+            ha: "2026.2.3"
+          - python: "3.14"
+            ha: "2026.10.3"
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install "homeassistant==${{ matrix.ha }}" "pytest>=8,<10" "pytest-asyncio>=1,<2" "freezegun>=1.5,<2" "PyYAML>=6,<7" "ruff>=0.14,<0.15"
+      - name: Install matching HA frontend used by blueprint schema
+        run: |
+          python - <<'PY'
+          import json, pathlib, subprocess, sys, homeassistant
+          manifest = pathlib.Path(homeassistant.__file__).parent / 'components/frontend/manifest.json'
+          requirements = json.loads(manifest.read_text())['requirements']
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', *requirements])
+          PY
+      - run: python scripts/build.py
+      - run: git diff --exit-code -- blueprints
+      - run: python -m ruff check scripts tests
+      - run: python -m ruff format --check scripts tests
+      - run: python -m pytest -p pytest_asyncio.plugin -q --tb=short

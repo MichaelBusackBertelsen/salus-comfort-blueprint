@@ -1,0 +1,14 @@
+# Example helpers for ONE room. Adapt names; repeat with unique IDs per room.
+# Do not duplicate helpers already created through the UI.
+timer:
+  example_comfort_period:
+    name: Example comfort period
+    restore: true
+  example_comfort_pause:
+    name: Example comfort pause
+    restore: true
+input_text:
+  example_comfort_state:
+    name: Example comfort state
+    max: 255
+    # No initial value: HA restores the previous value.

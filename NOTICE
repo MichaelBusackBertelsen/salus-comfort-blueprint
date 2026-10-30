@@ -1,0 +1,3 @@
+Standalone standard-helper weather blueprint, reimplemented from the SALUS fork design.
+MIT license and retained upstream copyright notices apply.
+No device protocol, user configuration or private capture data is included.
