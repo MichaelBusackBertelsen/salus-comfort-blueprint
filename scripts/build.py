@@ -620,7 +620,11 @@ notice = (
 
 def write_variant(name, content):
     (root / "blueprints" / "automation" / name).write_text(
-        notice
+        (
+            notice.replace("# \n", "#\n")
+            if name.endswith("_conditional.yaml")
+            else notice
+        )
         + yaml.dump(
             content, Dumper=Dumper, allow_unicode=True, sort_keys=False, width=110
         ),
