@@ -12,6 +12,7 @@ from homeassistant.components.automation.config import (
     PLATFORM_SCHEMA,
 )
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
+from homeassistant.const import __version__
 from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -523,3 +524,55 @@ async def test_danish_import_has_identical_control_logic_and_valid_schema(env):
     english.pop("blueprint")
     danish.pop("blueprint")
     assert english == danish
+
+
+@pytest.mark.skipif(
+    tuple(map(int, __version__.split(".")[:2])) < (2026, 11),
+    reason="Conditional visibility requires HA 2026.11",
+)
+@pytest.mark.parametrize("language", ["", "_da"])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_conditional_form_preserves_enabled_settings_and_ignores_hidden_values(
+    env, language, enabled
+):
+    path = (
+        ROOT / f"blueprints/automation/salus_floor_comfort{language}_conditional.yaml"
+    )
+    raw = yaml_util.load_yaml_dict(str(path))
+    bp = Blueprint(
+        raw, expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA
+    )
+    instance = BlueprintInputs(
+        bp,
+        {
+            "use_blueprint": {
+                "path": str(path),
+                "input": {
+                    "source": "weather.test",
+                    "rooms": deepcopy(ROOMS),
+                    "use_room_minimum": enabled,
+                    "room_minimum": 20,
+                    "room_margin": 0.7,
+                    "use_room_maximum": enabled,
+                    "room_maximum": 24,
+                },
+            }
+        },
+    )
+    instance.validate()
+    config = instance.async_substitute()
+    values = config["variables"]
+    assert values["use_room_minimum"] is enabled
+    assert values["use_room_maximum"] is enabled
+    assert values["room_minimum"] == (20 if enabled else 21)
+    assert values["room_margin"] == (0.7 if enabled else 0.5)
+    assert values["room_maximum"] == (24 if enabled else 25)
+    script = Script(
+        env["hass"],
+        cv.SCRIPT_SCHEMA(config.get("actions", config.get("action"))),
+        "conditional form",
+        "automation",
+    )
+    await script.async_run(values, context=Context())
+    await env["hass"].async_block_till_done()
+    assert env["calls"] == [("select.one", "level_1"), ("select.two", "level_1")]

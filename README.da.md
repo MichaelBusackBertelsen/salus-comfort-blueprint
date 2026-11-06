@@ -9,6 +9,23 @@ Dette er en selvstændig prøveudgave. Den er testet med Home Assistants rigtige
 blueprint- og handlingsmotor med simulerede enheder. Den nye udskilte udgave er
 endnu ikke afprøvet på fysiske termostater. Din eksisterende beta ændres ikke.
 
+## Tydeligere formular i HA 2026.11
+
+[Den nye formular](https://github.com/MichaelBusackBertelsen/salus-comfort-blueprint/blob/main/blueprints/automation/salus_floor_comfort_da_conditional.yaml)
+beholder de to kontakter. Minimumtemperatur og buffer vises kun, når minimum er
+slået til. Øvre temperatur vises kun, når straks-afbrydelse er slået til.
+Kræver **HA 2026.11.0+**. Den gamle formular er fortsat tilgængelig til ældre HA.
+
+Importér den nye fil, og ret kun `use_blueprint.path` i den eksisterende
+automations YAML til den importerede filsti. Behold automationens `id`, navn,
+rum, hjælpere og alle `input`-værdier. Den samme automation beholder dermed sin
+identitet og de eksisterende rumhjælpere. Kør ikke en ekstra regel på samme rum.
+En temperatur, som er skjult, bruges ikke, mens kontakten er slået fra.
+
+**Bruger du SALUS b15 uden Timer-/Tekst-hjælpere?** Brug i stedet
+[b15-formularen og vejledningen](https://github.com/MichaelBusackBertelsen/homeassistant_salus/blob/feature/floor-dashboard/BLUEPRINT-2026-11.md).
+Den bruger din eksisterende controller; ingen nye hjælpere er nødvendige.
+
 ## Opret hjælperne
 
 Gå til **Indstillinger → Enheder og tjenester → Hjælpere → Opret hjælper**.

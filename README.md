@@ -11,6 +11,18 @@ hardware. Keep your existing working installation until you choose to migrate.
 [Dansk vejledning](README.da.md) ·
 [Independent dashboard card](https://github.com/MichaelBusackBertelsen/salus-room-card)
 
+## Clearer room controls on HA 2026.11
+
+Optional forms for **HA 2026.11+** keep the existing two switches, and show the
+minimum temperature/margin and upper limit only when their respective switch is on:
+[English conditional form](blueprints/automation/salus_floor_comfort_conditional.yaml),
+[Danish conditional form](blueprints/automation/salus_floor_comfort_da_conditional.yaml).
+The original forms remain available for older HA releases. Input names, defaults,
+helpers and control logic are unchanged. To migrate, import the conditional form
+and change only `use_blueprint.path` in your existing automation, preserving its
+ID and every saved input. Do not create a second active rule for the same rooms.
+Hidden thresholds are ignored while their switch is off.
+
 ## Requirements and installation
 
 Home Assistant 2026.2 or newer, a weather entity supporting hourly forecasts, and

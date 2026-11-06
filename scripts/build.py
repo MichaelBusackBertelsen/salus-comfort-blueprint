@@ -646,3 +646,26 @@ fields = bp["input"]["rooms_section"]["input"]["rooms"]["selector"]["object"]["f
 for key, value in fields.items():
     value["label"] = metadata["fields"][key]
 write_variant("salus_floor_comfort_da.yaml", translated)
+
+
+# Keep the compatible forms available; conditional visibility requires HA 2026.11.
+def conditional_variant(content):
+    result = deepcopy(content)
+    bp = result["blueprint"]
+    bp["homeassistant"]["min_version"] = "2026.11.0"
+    bp["name"] += " (HA 2026.11)"
+    bp["source_url"] = bp["source_url"].replace(".yaml", "_conditional.yaml")
+    fields = bp["input"]["indoor_section"]["input"]
+    for name, toggle in (
+        ("room_minimum", "use_room_minimum"),
+        ("room_margin", "use_room_minimum"),
+        ("room_maximum", "use_room_maximum"),
+    ):
+        fields[name]["visible"] = {"field": toggle, "value": True}
+    return result
+
+
+write_variant("salus_floor_comfort_conditional.yaml", conditional_variant(document))
+write_variant(
+    "salus_floor_comfort_da_conditional.yaml", conditional_variant(translated)
+)
